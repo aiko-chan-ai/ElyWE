@@ -349,8 +349,7 @@ func removeFromStartup() error {
 }
 
 func main() {
-	maj, min, patch := windows.RtlGetNtVersionNumbers()
-	fmt.Println(maj, min, patch)
+	maj, _, _ := windows.RtlGetNtVersionNumbers()
 
 	if (maj < 8) {
 		showMessageBox("Error", "Windows version is less than Windows 8", MB_ICONERROR)
