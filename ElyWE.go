@@ -355,7 +355,8 @@ func main() {
     fmt.Println("|  _| | | | | / __| |/ _` \\ \\ /\\ / /|  _|  ")
     fmt.Println("| |___| | |_| \\__ \\ | (_| |\\ V  V / | |___ ")
     fmt.Println("|_____|_|\\__, |___/_|\\__,_| \\_/\\_/  |_____|")
-    fmt.Println("         |___/                             \n")
+    fmt.Println("         |___/                             ")
+	fmt.Println("")
 	maj, _, _ := windows.RtlGetNtVersionNumbers()
 
 	if (maj < 8) {
