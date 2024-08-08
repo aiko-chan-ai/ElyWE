@@ -66,7 +66,7 @@ func stopMPV() {
 			log.Println("mpv processes killed successfully.")
 		}
 	} else {
-		log.Fatalln("No mpv processes found.")
+		log.Println("No mpv processes found.")
 	}
 }
 
