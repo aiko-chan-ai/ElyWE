@@ -349,6 +349,13 @@ func removeFromStartup() error {
 }
 
 func main() {
+	// just ascii art
+	fmt.Println(" _____ _           _     __        _______ ")
+    fmt.Println("| ____| |_   _ ___(_) __ \\ \\      / / ____|")
+    fmt.Println("|  _| | | | | / __| |/ _` \\ \\ /\\ / /|  _|  ")
+    fmt.Println("| |___| | |_| \\__ \\ | (_| |\\ V  V / | |___ ")
+    fmt.Println("|_____|_|\\__, |___/_|\\__,_| \\_/\\_/  |_____|")
+    fmt.Println("         |___/                             \n")
 	maj, _, _ := windows.RtlGetNtVersionNumbers()
 
 	if (maj < 8) {
@@ -490,7 +497,9 @@ func main() {
 	progman, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("Progman"))), 0)
 
 	var result uintptr
-	procSendMessageTimeout.Call(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, uintptr(unsafe.Pointer(&result)))
+	// Fix WorkerW not found: https://dynamicwallpaper.readthedocs.io/en/docs/dev/make-wallpaper.html#spawning-workerw
+	procSendMessageTimeout.Call(progman, 0x052C, 0xD, 0, SMTO_NORMAL, 1000, uintptr(unsafe.Pointer(&result)))
+	procSendMessageTimeout.Call(progman, 0x052C, 0xD, 1, SMTO_NORMAL, 1000, uintptr(unsafe.Pointer(&result)))
 
 	var workerw uintptr
 	enumWindowsCallback := syscall.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
