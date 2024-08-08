@@ -37,6 +37,8 @@ const (
 	SM_CYSCREEN  = 1
 	SWP_NOZORDER = 0x0004
 	MyApp        = "ElyWE"
+	Version      = "0.0.2"
+	Author       = "aiko-chan-ai"
 )
 
 const (
@@ -356,6 +358,9 @@ func main() {
     fmt.Println("| |___| | |_| \\__ \\ | (_| |\\ V  V / | |___ ")
     fmt.Println("|_____|_|\\__, |___/_|\\__,_| \\_/\\_/  |_____|")
     fmt.Println("         |___/                             ")
+	fmt.Println("")
+	fmt.Println("Author	:", Author)
+	fmt.Println("Version	:", Version)
 	fmt.Println("")
 	maj, _, _ := windows.RtlGetNtVersionNumbers()
 
