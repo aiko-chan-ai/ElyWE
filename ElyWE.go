@@ -61,10 +61,10 @@ func stopMPV() {
 		if err != nil {
 			fmt.Printf("Failed to kill mpv processes: %v\n", err)
 		} else {
-			fmt.Println("mpv processes killed successfully.")
+			log.Println("mpv processes killed successfully.")
 		}
 	} else {
-		fmt.Println("No mpv processes found.")
+		log.Fatalln("No mpv processes found.")
 	}
 }
 
@@ -105,12 +105,12 @@ func checkKey() (bool, int) {
 func getExecPathAndDir() (string, string) {
 	exePath, err := os.Executable()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Fatalln("Error:", err)
 		return "", ""
 	}
 	exePath, err = filepath.Abs(exePath)
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Fatalln("Error:", err)
 		return "", ""
 	}
 	exeDir := filepath.Dir(exePath)
@@ -137,7 +137,7 @@ func runMeElevated() {
 
 	err := windows.ShellExecute(0, verbPtr, exePtr, argPtr, cwdPtr, showCmd)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalln(err)
 	}
 	os.Exit(0)
 }
@@ -234,7 +234,7 @@ func checkMpv() bool {
 		fmt.Println("please see the following guide: https://dev.to/stephanlamoureux/getting-started-with-chocolatey-epo")
 		return false
 	} else {
-		fmt.Println("mpv is installed and in your PATH.")
+		log.Println("mpv is installed and in your PATH.")
 		return true
 	}
 }
@@ -469,7 +469,7 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				fmt.Println("Set video wallpaper: " + path)
+				log.Println("Set video wallpaper: " + path)
 			} else {
 				showMessageBox("Error", "Invalid path: "+path, MB_ICONERROR)
 				return
@@ -487,7 +487,7 @@ func main() {
 
 	// End
 	if path == "" {
-		fmt.Println("Video path is empty.")
+		log.Fatalln("Video path is empty.")
 		return
 	}
 	stopMPV()
@@ -514,7 +514,7 @@ func main() {
 	procEnumWindows.Call(enumWindowsCallback, 0)
 
 	if workerw != 0 {
-		fmt.Println("WorkerW found!")
+		log.Println("WorkerW found!")
 		// Run MPV and get its window handle
 		cmd := exec.Command("mpv", "--fs", "--loop", "--mute=yes", "--panscan=1.0", "--hwdec=auto", "--profile=low-latency", "--framedrop=no", "--scale=bilinear", "--dscale=bilinear", "--video-sync=display-resample", "--video-output-levels=full", path)
 		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE, HideWindow: true}
@@ -553,7 +553,7 @@ func main() {
 
 		// Set the MPV window as a child of WorkerW
 		procSetParent.Call(mpvWindow, workerw)
-		fmt.Println("MPV window set as child of WorkerW.")
+		log.Println("MPV window set as child of WorkerW.")
 	} else {
 		showMessageBox("Error", "WorkerW not found", MB_ICONERROR)
 	}
