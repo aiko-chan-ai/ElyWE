@@ -13,6 +13,8 @@ import (
 	"time"
 	"unsafe"
 
+	"log/slog"
+
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 	"golang.org/x/sys/windows"
@@ -47,76 +49,94 @@ const (
 	MB_ICONINFORMATION = 0x00000040
 )
 
-func stopMPV() {
+func UTF16PtrFromString(s string) *uint16 {
+	strPtr, err := syscall.UTF16PtrFromString(s)
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+
+	return strPtr
+}
+
+func stopMPV() error {
 	// Check if any mpv processes are running
 	checkCmd := exec.Command("tasklist", "/FI", "IMAGENAME eq mpv.exe")
 	var out bytes.Buffer
 	checkCmd.Stdout = &out
-	err := checkCmd.Run()
-	if err != nil {
-		fmt.Printf("Failed to check for mpv processes: %v\n", err)
-		return
+
+	if err := checkCmd.Run(); err != nil {
+		return fmt.Errorf("failed to check for mpv processes: %v", err)
 	}
-	if bytes.Contains(out.Bytes(), []byte("mpv.exe")) {
-		killCmd := exec.Command("taskkill", "/F", "/IM", "mpv.exe")
-		err := killCmd.Run()
-		if err != nil {
-			fmt.Printf("Failed to kill mpv processes: %v\n", err)
-		} else {
-			log.Println("mpv processes killed successfully.")
-		}
-	} else {
-		log.Println("No mpv processes found.")
+
+	if !bytes.Contains(out.Bytes(), []byte("mpv.exe")) {
+		return fmt.Errorf("no mpv processes found")
 	}
+
+	killCmd := exec.Command("taskkill", "/F", "/IM", "mpv.exe")
+	if err := killCmd.Run(); err != nil {
+		return fmt.Errorf("failed to kill mpv processes: %v\n", err)
+	}
+
+	slog.Debug("mpv processes killed successfully.")
+	return nil
 }
 
-func isValidPath(path string) bool {
+func checkPath(path string) error {
 	if path == "" {
-		return true
+		return nil
 	}
 	if !filepath.IsAbs(path) {
-		return false
+		return fmt.Errorf("path is not absolute")
 	}
 	file, err := os.Stat(path)
 	if err != nil {
-		return false
+		return fmt.Errorf("file not found")
 	}
 	if file.IsDir() {
-		return false
+		return fmt.Errorf("path is a directory")
 	}
-	return true
+	return nil
 }
 
-func checkKey() (bool, int) {
+type CheckKeyErrors int
+
+const (
+	KeyNotFound CheckKeyErrors = iota
+	VideoPathNotFound
+	FileInvalid
+)
+
+func checkKey() CheckKeyErrors {
 	key, err := registry.OpenKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.QUERY_VALUE)
 	if err != nil {
-		return false, 1 // Key not found
+		return KeyNotFound
 	}
 	defer key.Close()
-	val, _, err := key.GetStringValue("VideoPath")
+
+	path, _, err := key.GetStringValue("VideoPath")
 	if err != nil {
-		return false, 2 // VideoPath not found
+		return VideoPathNotFound
 	}
-	if isValidPath(val) {
-		return true, 0
-	} else {
-		return false, 3 // File invalid
+
+	if err := checkPath(path); err != nil {
+		return FileInvalid
 	}
+
+	return 0 // No error
+
 }
 
-func getExecPathAndDir() (string, string) {
+func getExecPathAndDir() (string, string, error) {
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Println("Error:", err)
-		return "", ""
+		return "", "", err
 	}
 	exePath, err = filepath.Abs(exePath)
 	if err != nil {
-		log.Println("Error:", err)
-		return "", ""
+		return "", "", err
 	}
-	exeDir := filepath.Dir(exePath)
-	return exePath, exeDir
+	return exePath, filepath.Dir(exePath), nil
 }
 
 func isAdmin() bool {
@@ -124,24 +144,22 @@ func isAdmin() bool {
 	return err == nil
 }
 
-func runMeElevated() {
+func runMeElevated() error {
 	verb := "runas"
-	exe, _ := os.Executable()
-	cwd, _ := os.Getwd()
-	args := strings.Join(os.Args[1:], " ")
-
-	verbPtr, _ := syscall.UTF16PtrFromString(verb)
-	exePtr, _ := syscall.UTF16PtrFromString(exe)
-	cwdPtr, _ := syscall.UTF16PtrFromString(cwd)
-	argPtr, _ := syscall.UTF16PtrFromString(args)
-
-	var showCmd int32 = 1 //SW_NORMAL
-
-	err := windows.ShellExecute(0, verbPtr, exePtr, argPtr, cwdPtr, showCmd)
+	exe, err := os.Executable()
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
-	os.Exit(0)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	showCmd := int32(1) //SW_NORMAL
+	if err := windows.ShellExecute(0, UTF16PtrFromString(verb), UTF16PtrFromString(exe), UTF16PtrFromString(strings.Join(os.Args[1:], " ")), UTF16PtrFromString(cwd), showCmd); err != nil {
+		return err
+	}
+	return nil
 }
 
 // List of video file extensions
@@ -155,58 +173,55 @@ var videoExtensions = []string{
 	".webm",
 }
 
-func showMessageBox(title, text string, style uintptr) int {
-	ret, _, _ := messageBox.Call(
+func showMessageBox(title, text string, style uintptr) error {
+	_, _, err := messageBox.Call(
 		0,
-		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(text))),
-		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(MyApp+" - "+title))),
+		uintptr(unsafe.Pointer(UTF16PtrFromString(text))),
+		uintptr(unsafe.Pointer(UTF16PtrFromString(MyApp+" - "+title))),
 		style,
 	)
 
-	return int(ret)
+	return err
 }
 
-func createContextMenu(ext string, exePath string) {
+func createContextMenu(ext string, exePath string) error {
 	shellKeyPath := fmt.Sprintf(`SystemFileAssociations\%s\shell\SetAsDesktopBackground`, ext)
 	shellKey, _, err := registry.CreateKey(registry.CLASSES_ROOT, shellKeyPath, registry.ALL_ACCESS)
 	if err != nil {
-		log.Fatalf("Failed to create shell registry key for %s: %v", ext, err)
+		return fmt.Errorf("failed to create shell registry key for %s: %v", ext, err)
 	}
 	defer shellKey.Close()
 
 	// Set the name of the context menu item
-	err = shellKey.SetStringValue("", "Set as desktop background")
-	if err != nil {
-		log.Fatalf("Failed to set shell registry value for %s: %v", ext, err)
+	if err := shellKey.SetStringValue("", "Set as desktop background"); err != nil {
+		return fmt.Errorf("failed to set shell registry value for %s: %v", ext, err)
 	}
 
 	commandKeyPath := shellKeyPath + `\command`
 	commandKey, _, err := registry.CreateKey(registry.CLASSES_ROOT, commandKeyPath, registry.ALL_ACCESS)
 	if err != nil {
-		log.Fatalf("Failed to create command registry key for %s: %v", ext, err)
+		return fmt.Errorf("failed to create command registry key for %s: %v", ext, err)
 	}
 	defer commandKey.Close()
 
 	// Command to run when the context menu item is selected
-	command := exePath + ` --set "%1"`
-
-	err = commandKey.SetStringValue("", command)
-	if err != nil {
-		log.Fatalf("Failed to set command registry value for %s: %v", ext, err)
+	if err := commandKey.SetStringValue("", exePath+` --set "%1"`); err != nil {
+		return fmt.Errorf("failed to set command registry value for %s: %v", ext, err)
 	}
 
-	fmt.Printf("Registry key set successfully for %s.\n", ext)
+	slog.Debug(fmt.Sprintf("Registry key set successfully for %s.\n", ext))
+	return nil
 }
 
-func removeContextMenu(ext string) {
+func removeContextMenu(ext string) error {
 	keyPath := fmt.Sprintf(`HKCR\SystemFileAssociations\%s\shell\SetAsDesktopBackground`, ext)
 	cmd := exec.Command("reg", "delete", keyPath, "/f") // =)) why ???
-	err := cmd.Run()
-	if err != nil {
-		log.Printf("Failed to delete registry key for %s: %v", ext, err)
-	} else {
-		fmt.Printf("Registry key deleted successfully for %s.\n", ext)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to delete registry key for %s: %v", ext, err)
 	}
+	slog.Debug(fmt.Sprintf("Registry key deleted successfully for %s.\n", ext))
+	return nil
 }
 
 func displayHelp() {
@@ -214,31 +229,20 @@ func displayHelp() {
 Usage: ElyWE [OPTIONS]
 
 Options:
-  -help                      Display help message
-  -check                     Check if the mpv video player is installed correctly.
-  -quit                      Kill all mpv processes
-  -set <filePath>            Set video file path
-  -install                   Install for right click menu (Requires Admin)
-  -uninstall                 Uninstall for right click menu (Requires Admin)
-  -enable_startup            Add shortcut to start with Windows
-  -disable_startup           Remove startup shortcut
+  --help                      Display help message
+  --check                     Check if the mpv video player is installed correctly.
+  --quit                      Kill all mpv processes
+  --set <filePath>            Set video file path
+  --install                   Install for right click menu (Requires Admin)
+  --uninstall                 Uninstall for right click menu (Requires Admin)
+  --enable_startup            Add shortcut to start with Windows
+  --disable_startup           Remove startup shortcut
 `
 	fmt.Println(helpMessage)
 }
 
-func checkMpv() bool {
-	_, err := exec.LookPath("mpv")
-	if err != nil {
-		fmt.Println("Error: Your system does not have a valid video player (mpv) installed.")
-		fmt.Println("Please install it using the following command:")
-		fmt.Println("$ choco install mpv")
-		fmt.Println("If you have never used Chocolatey or installed a package with Chocolatey,")
-		fmt.Println("please see the following guide: https://dev.to/stephanlamoureux/getting-started-with-chocolatey-epo")
-		return false
-	} else {
-		log.Println("mpv is installed and in your PATH.")
-		return true
-	}
+func findMpv() (string, error) {
+	return exec.LookPath("mpv")
 }
 
 /* Defender mark as trojan omg
@@ -316,8 +320,7 @@ func createShortcut(targetPath, shortcutPath string) error {
 	oleutil.PutProperty(sc, "Description", "My Application")
 	oleutil.PutProperty(sc, "IconLocation", targetPath+", 0")
 
-	_, err = oleutil.CallMethod(sc, "Save")
-	if err != nil {
+	if _, err = oleutil.CallMethod(sc, "Save"); err != nil {
 		return fmt.Errorf("failed to save shortcut: %v", err)
 	}
 
@@ -341,7 +344,7 @@ func removeFromStartup() error {
 	}
 
 	shortcutPath := filepath.Join(startupPath, MyApp+".lnk")
-	if _, err := os.Stat(shortcutPath); err == nil {
+	if _, err := os.Stat(shortcutPath); err != nil {
 		return os.Remove(shortcutPath)
 	} else if os.IsNotExist(err) {
 		return fmt.Errorf("shortcut does not exist")
@@ -353,20 +356,22 @@ func removeFromStartup() error {
 func main() {
 	// just ascii art
 	fmt.Println(" _____ _           _     __        _______ ")
-    fmt.Println("| ____| |_   _ ___(_) __ \\ \\      / / ____|")
-    fmt.Println("|  _| | | | | / __| |/ _` \\ \\ /\\ / /|  _|  ")
-    fmt.Println("| |___| | |_| \\__ \\ | (_| |\\ V  V / | |___ ")
-    fmt.Println("|_____|_|\\__, |___/_|\\__,_| \\_/\\_/  |_____|")
-    fmt.Println("         |___/                             ")
+	fmt.Println("| ____| |_   _ ___(_) __ \\ \\      / / ____|")
+	fmt.Println("|  _| | | | | / __| |/ _` \\ \\ /\\ / /|  _|  ")
+	fmt.Println("| |___| | |_| \\__ \\ | (_| |\\ V  V / | |___ ")
+	fmt.Println("|_____|_|\\__, |___/_|\\__,_| \\_/\\_/  |_____|")
+	fmt.Println("         |___/                             ")
 	fmt.Println("")
 	fmt.Println("Author	:", Author)
 	fmt.Println("Version	:", Version)
 	fmt.Println("")
-	maj, _, _ := windows.RtlGetNtVersionNumbers()
+	windowsVersion, _, _ := windows.RtlGetNtVersionNumbers()
 
-	if (maj < 8) {
-		showMessageBox("Error", "Windows version is less than Windows 8", MB_ICONERROR)
-		return;
+	if windowsVersion < 8 {
+		if err := showMessageBox("Error", "Windows version is less than Windows 8", MB_ICONERROR); err != nil {
+			slog.Error("Windows version is less than Windows 8")
+		}
+		os.Exit(1)
 	}
 
 	help := flag.Bool("help", false, "Display help message")
@@ -377,130 +382,202 @@ func main() {
 	uninstall := flag.Bool("uninstall", false, "Uninstall for right click menu (Required Admin)")
 	enableStartup := flag.Bool("enable_startup", false, "Add registry key to start with Windows")
 	disableStartup := flag.Bool("disable_startup", false, "Remove registry key to not start with Windows")
+	findMpvTimeout := flag.Int("find_mpv_timeout", 5, "Timeout in seconds to find mpv window")
+	verbose := flag.Bool("verbose", false, "Verbose logging")
 	test := flag.Bool("test", false, "Test some stuff")
 
 	flag.Parse()
 
-	exePath, _ := getExecPathAndDir()
+	if *verbose {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
+
+	exePath, _, err := getExecPathAndDir()
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to get executable path: %v", err))
+		showMessageBox("Error", "Failed to get executable path", MB_ICONERROR)
+		os.Exit(1)
+	}
 
 	if *test {
 		showMessageBox("Test", "read if cute <3", MB_ICONINFORMATION|MB_OK)
-		return
+		os.Exit(0)
 	}
 
 	// Check registry
-	stats, typeCheck := checkKey()
-	var (
-		key  registry.Key
-		err  error
-		path = ""
-	)
-	if !stats {
-		switch typeCheck {
+	checkKeyResult := checkKey()
+
+	if checkKeyResult != 0 {
+		switch checkKeyResult {
 		case 1:
 			{
-				key, _, err = registry.CreateKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.ALL_ACCESS)
+				key, _, err := registry.CreateKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.ALL_ACCESS)
 				if err != nil {
 					log.Fatal(err)
 				}
-				err = key.SetStringValue("VideoPath", path)
-				if err != nil {
+
+				if err := key.SetStringValue("VideoPath", ""); err != nil {
 					log.Fatal(err)
 				}
 				break
 			}
 		case 2, 3:
 			{
-				key, err = registry.OpenKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.ALL_ACCESS)
+				key, err := registry.OpenKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.ALL_ACCESS)
 				if err != nil {
 					log.Fatal(err)
 				}
-				err = key.SetStringValue("VideoPath", path)
-				if err != nil {
+
+				if err := key.SetStringValue("VideoPath", ""); err != nil {
 					log.Fatal(err)
 				}
 				break
 			}
 		}
-	} else {
-		key, err = registry.OpenKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.ALL_ACCESS)
-		if err != nil {
-			log.Fatal(err)
-		}
-		path, _, err = key.GetStringValue("VideoPath")
-		if err != nil {
-			log.Fatal(err)
-		}
+		return // Exit
 	}
+
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, "Software\\"+MyApp, registry.ALL_ACCESS)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to open registry key: %v", err))
+		showMessageBox("Error", "Failed to open registry key", MB_ICONERROR)
+		os.Exit(1)
+	}
+
+	path, _, err := key.GetStringValue("VideoPath")
+	if err != nil {
+		slog.Debug(fmt.Sprintf("Failed to get registry key VideoPath: %v", err))
+		// showMessageBox("Error", "Failed to get registry key", MB_ICONERROR)
+		// os.Exit(1)
+	}
+
 	defer key.Close()
 	// Args
-	if *help {
+	if *help || os.Args[1] == "" {
 		displayHelp()
-		return
-	} else if *quit {
-		stopMPV()
-		return
-	} else if *check {
-		_ = checkMpv()
-		return
-	} else if *install {
+		os.Exit(0)
+	}
+	if *quit {
+		if err := stopMPV(); err != nil {
+			slog.Error(fmt.Sprintf("Failed to stop mpv: %v", err))
+			showMessageBox("Error", "Failed to stop mpv", MB_ICONERROR)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if *check {
+		path, err := findMpv()
+		if err != nil {
+			fmt.Println("Error: Your system does not have a valid video player (mpv) installed.")
+			fmt.Println("Please install it using the following command:")
+			fmt.Println("$ choco install mpv")
+			fmt.Println("If you have never used Chocolatey or installed a package with Chocolatey,")
+			fmt.Println("please see the following guide: https://dev.to/stephanlamoureux/getting-started-with-chocolatey-epo")
+			os.Exit(1)
+		}
+
+		slog.Info(fmt.Sprintf("Found mpv at %s", path))
+		os.Exit(0)
+	}
+	if *install {
 		if !isAdmin() {
-			runMeElevated()
-			return
+			if err := runMeElevated(); err != nil {
+				slog.Error(err.Error())
+				os.Exit(1)
+			}
+			os.Exit(0)
 		}
 		for _, ext := range videoExtensions {
-			createContextMenu(ext, exePath)
-		}
-		showMessageBox("Success", "Context menu entries created successfully for some video file types.", MB_ICONINFORMATION|MB_OK)
-		return
-	} else if *uninstall {
-		if !isAdmin() {
-			runMeElevated()
-			return
-		}
-		for _, ext := range videoExtensions {
-			removeContextMenu(ext)
-		}
-		showMessageBox("Success", "Context menu entries removed successfully for some video file types.", MB_ICONINFORMATION|MB_OK)
-		return
-	} else if *set != "" {
-		path = *set
-		if path == "" {
-			showMessageBox("Error", "Invalid path: "+path, MB_ICONERROR)
-			return
-		} else {
-			if isValidPath(path) {
-				err = key.SetStringValue("VideoPath", path)
-				if err != nil {
-					log.Fatal(err)
-				}
-				log.Println("Set video wallpaper: " + path)
-			} else {
-				showMessageBox("Error", "Invalid path: "+path, MB_ICONERROR)
-				return
+			if err := createContextMenu(ext, exePath); err != nil {
+				slog.Error(err.Error())
+				os.Exit(1)
 			}
 		}
-	} else if *enableStartup {
-		addToStartup(exePath)
+		showMessageBox("Success", "Context menu entries created successfully for some video file types.", MB_ICONINFORMATION|MB_OK)
+		os.Exit(0)
+	}
+	if *uninstall {
+		if !isAdmin() {
+			if err := runMeElevated(); err != nil {
+				slog.Error(err.Error())
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+		for _, ext := range videoExtensions {
+			if err := removeContextMenu(ext); err != nil {
+				slog.Error(err.Error())
+				os.Exit(1)
+			}
+		}
+		showMessageBox("Success", "Context menu entries removed successfully for some video file types.", MB_ICONINFORMATION|MB_OK)
+		os.Exit(0)
+	}
+	if *set != "" {
+		path = *set
+		if path == "" {
+			slog.Error("Video path is empty.")
+			showMessageBox("Error", "Invalid path: "+path, MB_ICONERROR)
+			os.Exit(1)
+		}
+		if err := checkPath(path); err != nil {
+			slog.Error(fmt.Sprintf("checkPath error: %v", err))
+			showMessageBox("Error", "Invalid path: "+path, MB_ICONERROR)
+			os.Exit(1)
+		}
+
+		if err := key.SetStringValue("VideoPath", path); err != nil {
+			slog.Error(fmt.Sprintf("Failed to set registry key: %v\n", err))
+			showMessageBox("Error", "Failed to set registry key", MB_ICONERROR)
+			os.Exit(1)
+		}
+
+		slog.Info("Set video wallpaper: " + path)
+
+	}
+	if *enableStartup {
+		if err := addToStartup(exePath); err != nil {
+			slog.Error(fmt.Sprintf("Failed to add to startup: %v", err))
+			showMessageBox("Error", "Failed to add to startup", MB_ICONERROR)
+			os.Exit(1)
+		}
 		showMessageBox("Success", "Successfully added to startup.", MB_ICONINFORMATION|MB_OK)
-		return
-	} else if *disableStartup {
-		removeFromStartup()
+		os.Exit(0)
+	}
+	if *disableStartup {
+		if err := removeFromStartup(); err != nil {
+			slog.Error(fmt.Sprintf("Failed to remove from startup: %v", err))
+			showMessageBox("Error", "Failed to remove from startup", MB_ICONERROR)
+			os.Exit(1)
+		}
 		showMessageBox("Success", "Successfully removed from startup.", MB_ICONINFORMATION|MB_OK)
-		return
+		os.Exit(0)
 	}
 
 	// End
 	if path == "" {
-		log.Fatalln("Video path is empty.")
-		return
+		slog.Error("Video path is empty.")
+		showMessageBox("Error", "Invalid path: "+path, MB_ICONERROR)
+		os.Exit(1)
 	}
-	stopMPV()
-	if !checkMpv() {
+
+	if err := stopMPV(); err != nil {
+		if err.Error() == "no mpv processes found" {
+			slog.Debug("No mpv processes found.")
+		} else {
+			slog.Error(fmt.Sprintf("Failed to stop mpv: %v", err))
+			showMessageBox("Error", "Failed to stop mpv", MB_ICONERROR)
+			os.Exit(1)
+		}
+	}
+
+	if _, err := findMpv(); err != nil {
+		slog.Error(fmt.Sprintf("mpv not found. error: %v", err))
 		showMessageBox("Error", "mpv not found", MB_ICONERROR)
-		return
+		os.Exit(1)
 	}
-	progman, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("Progman"))), 0)
+
+	progman, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(UTF16PtrFromString(path))), 0)
 
 	var result uintptr
 	// Fix WorkerW not found: https://dynamicwallpaper.readthedocs.io/en/docs/dev/make-wallpaper.html#spawning-workerw
@@ -509,57 +586,72 @@ func main() {
 
 	var workerw uintptr
 	enumWindowsCallback := syscall.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
-		shellView, _, _ := procFindWindowEx.Call(hwnd, 0, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("SHELLDLL_DefView"))), 0)
-		if shellView != 0 {
-			workerw, _, _ = procFindWindowEx.Call(0, hwnd, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("WorkerW"))), 0)
+		if shellView, _, _ := procFindWindowEx.Call(hwnd, 0, uintptr(unsafe.Pointer(UTF16PtrFromString("SHELLDLL_DefView"))), 0); shellView != 0 {
+			workerw, _, _ = procFindWindowEx.Call(0, hwnd, uintptr(unsafe.Pointer(UTF16PtrFromString("WorkerW"))), 0)
 		}
 		return 1 // Continue enumeration
 	})
 
 	procEnumWindows.Call(enumWindowsCallback, 0)
 
-	if workerw != 0 {
-		log.Println("WorkerW found!")
-		// Run MPV and get its window handle
-		cmd := exec.Command("mpv", "--fs", "--loop", "--mute=yes", "--panscan=1.0", "--hwdec=auto", "--profile=low-latency", "--framedrop=no", "--scale=bilinear", "--dscale=bilinear", "--video-sync=display-resample", "--video-output-levels=full", path)
-		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE, HideWindow: true}
-		err := cmd.Start()
-		if err != nil {
-			showMessageBox("Error", "Failed to start MPV: \n"+err.Error(), MB_ICONERROR)
-			return
-		}
-
-		// Wait for MPV window to appear
-		var mpvWindow uintptr
-		var timeout = 0
-		for {
-			if timeout > 50 {
-				showMessageBox("Error", "Failed to start MPV: Timeout (5s)\nYour video might be invalid.", MB_ICONERROR)
-				err := key.SetStringValue("VideoPath", "")
-				if err != nil {
-					log.Fatal(err)
-				}
-				return
-			}
-			mpvWindow, _, _ = procFindWindow.Call(uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("mpv"))), 0)
-			if mpvWindow != 0 {
-				break
-			}
-			timeout++
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		// Get screen resolution
-		screenWidth, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
-		screenHeight, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
-
-		// Set the MPV window position and size
-		procSetWindowPos.Call(mpvWindow, 0, 0, 0, screenWidth, screenHeight, SWP_NOZORDER)
-
-		// Set the MPV window as a child of WorkerW
-		procSetParent.Call(mpvWindow, workerw)
-		log.Println("MPV window set as child of WorkerW.")
-	} else {
+	if workerw == 0 {
+		slog.Error("WorkerW not found")
 		showMessageBox("Error", "WorkerW not found", MB_ICONERROR)
 	}
+
+	slog.Debug("WorkerW found!")
+	// Run MPV and get its window handle
+	cmd := exec.Command("mpv", "--fs", "--loop", "--mute=yes", "--panscan=1.0", "--hwdec=auto", "--profile=low-latency", "--framedrop=no", "--scale=bilinear", "--dscale=bilinear", "--video-sync=display-resample", "--video-output-levels=full", path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE, HideWindow: true}
+
+	if err := cmd.Start(); err != nil {
+		slog.Debug(fmt.Sprintf("Failed to start MPV: %v", err))
+		showMessageBox("Error", "Failed to start MPV", MB_ICONERROR)
+		os.Exit(1)
+	}
+
+	// Wait for MPV window to appear
+	var mpvWindow uintptr
+	timeout := 0
+	for {
+		if timeout > *findMpvTimeout*10 {
+			showMessageBox("Error", fmt.Sprintf("Failed to start MPV: Timeout (%ds)\nYour video might be invalid.", *findMpvTimeout), MB_ICONERROR)
+			if err := key.SetStringValue("VideoPath", ""); err != nil {
+				slog.Error(fmt.Sprintf("Failed to set registry key: %v", err))
+			}
+			os.Exit(1)
+		}
+		mpvWindow, _, _ = procFindWindow.Call(uintptr(unsafe.Pointer(UTF16PtrFromString("mpv"))), 0)
+		if mpvWindow != 0 { // Found
+			break
+		}
+		timeout++
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Get screen resolution
+	screenWidth, _, err := procGetSystemMetrics.Call(SM_CXSCREEN)
+	if err != nil && err.Error() != "The operation completed successfully." {
+		slog.Error(fmt.Sprintf("Failed to get screen width: %v", err))
+		os.Exit(1)
+	}
+	screenHeight, _, err := procGetSystemMetrics.Call(SM_CYSCREEN)
+	if err != nil && err.Error() != "The operation completed successfully." {
+		slog.Error(fmt.Sprintf("Failed to get screen height: %v", err))
+		os.Exit(1)
+	}
+
+	// Set the MPV window position and size
+	if _, _, err := procSetWindowPos.Call(mpvWindow, 0, 0, 0, screenWidth, screenHeight, SWP_NOZORDER); err != nil && err.Error() != "The operation completed successfully." {
+		slog.Error(fmt.Sprintf("Failed to set MPV window position and size: %v", err))
+		os.Exit(1)
+	}
+
+	// Set the MPV window as a child of WorkerW
+	if _, _, err := procSetParent.Call(mpvWindow, workerw); err != nil && err.Error() != "The operation completed successfully." {
+		slog.Error(fmt.Sprintf("Failed to set MPV window as child of WorkerW: %v", err))
+		os.Exit(1)
+	}
+
+	slog.Debug("MPV window set as child of WorkerW.")
 }
