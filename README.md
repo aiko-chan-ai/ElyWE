@@ -42,6 +42,27 @@ If you have never used Chocolatey or installed a package with Chocolatey,
 please see the following guide: https://dev.to/stephanlamoureux/getting-started-with-chocolatey-epo
 ```
 
+## Preparation: Install Chocolatey and MPV
+*Skip if you already have MPV installed.*
+
+### Installing Chocolatey:
+1. Open a new PowerShell window with admin rights.
+2. Run the following command:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+```
+
+Snippet from [Chocolatey Documentation](https://docs.chocolatey.org/en-us/choco/setup/).
+
+### Installing MPV:
+1. After installing Chocolatey, open a new PowerShell window with admin rights.
+2. Run the following command:
+
+```sh
+choco install mpv
+```
+
 ## Installation
 
 1. Download the latest release from the [releases page](https://github.com/aiko-chan-ai/ElyWE/releases) and save it in a secure location.
@@ -57,7 +78,7 @@ To simply set a video as your wallpaper:
 ElyWE --set "<video path>"
 ```
 
-## Advanced Features
+## Advanced Usage
 
 ### Right-Click Menu
 
@@ -69,14 +90,6 @@ ElyWE --install
 
 After installing, you can right-click any video file and select "Set as desktop background".
 
-### Startup with Windows
-
-To enable ElyWE to start with Windows:
-
-```
-ElyWE --enable_startup
-```
-
 ### Uninstall Right-Click Menu
 
 To remove the right-click menu option:
@@ -85,12 +98,25 @@ To remove the right-click menu option:
 ElyWE --uninstall
 ```
 
+### Startup with Windows
+
+To enable ElyWE to start with Windows:
+
+```
+ElyWE --enable_startup
+```
+
 ### Disable Startup with Windows
 
 To disable ElyWE from starting with Windows:
 
 ```
 ElyWE --disable_startup
+```
+
+### Stop video
+```
+ElyWE --quit
 ```
 
 ## Disclaimer
