@@ -107,12 +107,12 @@ func checkKey() (bool, int) {
 func getExecPathAndDir() (string, string) {
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Fatalln("Error:", err)
+		log.Println("Error:", err)
 		return "", ""
 	}
 	exePath, err = filepath.Abs(exePath)
 	if err != nil {
-		log.Fatalln("Error:", err)
+		log.Println("Error:", err)
 		return "", ""
 	}
 	exeDir := filepath.Dir(exePath)
