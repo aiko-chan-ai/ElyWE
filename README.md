@@ -42,6 +42,16 @@ If you have never used Chocolatey or installed a package with Chocolatey,
 please see the following guide: https://dev.to/stephanlamoureux/getting-started-with-chocolatey-epo
 ```
 
+## Video setup & testing
+
+### [Video URL - Onedrive](https://shiroko-my.sharepoint.com/:v:/g/personal/aiko_shiroko_onmicrosoft_com/EchjiYeMk8RGlFaDeo6Sf6MBrYKfK1tRNiAVUcWXzlHKYg?nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJPbmVEcml2ZUZvckJ1c2luZXNzIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXciLCJyZWZlcnJhbFZpZXciOiJNeUZpbGVzTGlua0NvcHkifX0&e=rWXhQ2)
+
+> [!NOTE]
+> Due to the video being tested on a virtual machine, it may exhibit some choppiness and lag.
+
+> [!WARNING]
+> At the end of the video, I tested the application on VirusTotal, which resulted in two false positives. Whether to use or trust this application is entirely up to you.
+
 ## Preparation: Install Chocolatey and MPV
 *Skip if you already have MPV installed.*
 
