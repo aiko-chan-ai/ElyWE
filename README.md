@@ -129,6 +129,29 @@ ElyWE --disable_startup
 ElyWE --quit
 ```
 
+## About anti-virus detection
+
+Sometimes, ElyWE will be flagged as malware by several anti-virus programs (Avast, AVG, Norton, McAfee, Windows Defender, etc.), this, however, is a false positive.
+
+3 things cause this to happen:
+
+a) Because the program executable isn't signed
+
+b) Some antiviruses detect this as a joke program
+
+c) Writing to registry keys and starting up with Windows seems suspicious.
+
+If downloaded from my GitHub, the program is safe to use (i cannot give this promise if you download it from somewhere else!). It is okay if you do not trust me; you can always go ahead and compile it yourself.
+
+For a tutorial on how to exclude this program from your antivirus so it can run anyway, check out these links:
+
+    Windows Defender: https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26
+    Avast: https://support.avast.com/en-ww/article/Antivirus-scan-exclusions#pc
+    AVG: https://support.avg.com/SupportArticleView?l=en&urlName=avg-antivirus-scan-exclusion
+    Norton: https://support.norton.com/sp/en/us/home/current/solutions/v3672136
+    McAfee: https://www.mcafee.com/support/?page=shell&shell=article-view&articleId=TS102056
+    For other antiviruses, try searching for "<antivirus name> add exception"
+
 ## Disclaimer
 
 Please note: This software is intended for demo purposes, not for productive use. As such, it is not polished, well-written, configurable, or in any way convenient to use. Do whatever you want with it, at your own risk.
