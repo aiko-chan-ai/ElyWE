@@ -57,13 +57,15 @@ please see the following guide: https://dev.to/stephanlamoureux/getting-started-
 
 ### Installing Chocolatey:
 1. Open a new PowerShell window with admin rights.
-2. Run the following command:
+2. Snippet from [Chocolatey Documentation](https://docs.chocolatey.org/en-us/choco/setup/):
+
+> With PowerShell, there is an additional step. You must ensure `Get-ExecutionPolicy` is not `Restricted`. We suggest using `Bypass` to bypass the policy to get things installed or `AllSigned` for quite a bit more security.
+>  - Run `Get-ExecutionPolicy`. If it returns `Restricted`, then run `Set-ExecutionPolicy AllSigned` or `Set-ExecutionPolicy Bypass -Scope Process`.
+>  - Now run the following command:
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 ```
-
-Snippet from [Chocolatey Documentation](https://docs.chocolatey.org/en-us/choco/setup/).
 
 ### Installing MPV:
 1. After installing Chocolatey, open a new PowerShell window with admin rights.
