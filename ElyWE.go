@@ -453,7 +453,7 @@ func main() {
 
 	defer key.Close()
 	// Args
-	if *help || os.Args[1] == "" {
+	if *help {
 		displayHelp()
 		os.Exit(0)
 	}
